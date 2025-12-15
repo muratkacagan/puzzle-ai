@@ -9,12 +9,10 @@ public class PuzzleController : MonoBehaviour
     [Header("Yapay Zeka Beyni (ONNX)")]
     public ModelAsset brainModel;
     private Worker worker;
-
-    // Eski Tip Tensor (Senin istediğin)
     private Tensor<float> gridTensor;
     private Tensor<float> inventoryTensor;
 
-    // Model giriş/çıkış isimleri
+    // Otomatik İsimler
     private string inputName1 = "grid";
     private string inputName2 = "inventory";
     private List<string> outputNames = new List<string>();
@@ -47,25 +45,17 @@ public class PuzzleController : MonoBehaviour
 
         Model model = ModelLoader.Load(brainModel);
 
-        // Giriş isimlerini al
         if (model.inputs.Count >= 2)
         {
             inputName1 = model.inputs[0].name;
             inputName2 = model.inputs[1].name;
         }
 
-        // Çıkış isimlerini listeye at
         outputNames.Clear();
-        foreach (var outDef in model.outputs)
-        {
-            outputNames.Add(outDef.name);
-        }
+        foreach (var outDef in model.outputs) outputNames.Add(outDef.name);
 
-        // CPU Moduna aldım (En garantisi budur, GPU veri okurken hata verebiliyor)
         worker = new Worker(model, BackendType.CPU);
-
         UpdateUI();
-        Debug.Log($"Sistem Hazır. Çıkışlar taranacak: {string.Join(", ", outputNames)}");
     }
 
     public void IncreaseItem(int shapeId) { if (shapeId < 6) { currentInventory[shapeId]++; UpdateUI(); } }
@@ -86,7 +76,6 @@ public class PuzzleController : MonoBehaviour
 
         currentGrid = new int[4, 6];
         if (gridManager != null) gridManager.UpdateVisuals(currentGrid);
-
         StopAllCoroutines();
         StartCoroutine(GameLoop());
     }
@@ -96,7 +85,6 @@ public class PuzzleController : MonoBehaviour
         bool gameOver = false;
         while (!gameOver)
         {
-            // 1. Action Masking
             List<int> validMoves = new List<int>();
             for (int i = 0; i < 144; i++)
             {
@@ -104,53 +92,36 @@ public class PuzzleController : MonoBehaviour
                 if (IsValidPlacement(sId, r, c)) validMoves.Add(i);
             }
 
-            if (validMoves.Count == 0) { Debug.Log("🏁 Oyun Bitti (Hamle yok)"); gameOver = true; yield break; }
+            if (validMoves.Count == 0) { Debug.Log("🏁 Oyun Bitti"); gameOver = true; yield break; }
 
-            // 2. AI Tahmini
             int bestAction = -1;
             float[] aiScores = RunAIModel();
 
-            // 3. Karar Verme
             if (aiScores != null)
             {
-                // Boyut kontrolü: En az 144 eleman olmalı
-                if (aiScores.Length < 144)
+                float maxScore = float.NegativeInfinity;
+                foreach (int moveIndex in validMoves)
                 {
-                    Debug.LogError($"🚨 HATA: Alınan çıktı boyutu {aiScores.Length}. 144 bekleniyordu!");
-                }
-                else
-                {
-                    float maxScore = float.NegativeInfinity;
-                    foreach (int moveIndex in validMoves)
+                    float score = aiScores[moveIndex];
+                    if (!float.IsNaN(score) && score > maxScore)
                     {
-                        float score = aiScores[moveIndex];
-                        if (!float.IsNaN(score) && score > maxScore)
-                        {
-                            maxScore = score;
-                            bestAction = moveIndex;
-                        }
+                        maxScore = score;
+                        bestAction = moveIndex;
                     }
                 }
             }
 
-            // 4. Fallback
-            if (bestAction == -1)
-            {
-                Debug.LogWarning("⚠️ AI kararsız, rastgele geçerli hamle.");
-                bestAction = validMoves[UnityEngine.Random.Range(0, validMoves.Count)];
-            }
+            if (bestAction == -1) bestAction = validMoves[UnityEngine.Random.Range(0, validMoves.Count)];
 
-            // 5. Oyna
             int shapeId = bestAction / 24;
             int remaining = bestAction % 24;
             int row = remaining / 6;
             int col = remaining % 6;
 
-            Debug.Log($"Oynanan Hamle: Şekil {shapeId} -> ({row}, {col})");
+            Debug.Log($"Oynanan: Şekil {shapeId} -> ({row}, {col})");
             PlaceShape(shapeId, row, col);
 
             if (currentInventory[shapeId] > 0) { currentInventory[shapeId]--; UpdateUI(); }
-
             yield return new WaitForSeconds(moveDelay);
         }
     }
@@ -162,11 +133,11 @@ public class PuzzleController : MonoBehaviour
             float[] gridData = new float[24];
             for (int r = 0; r < 4; r++)
                 for (int c = 0; c < 6; c++)
-                    gridData[r * 6 + c] = (float)currentGrid[r, c];
+                    // RENKLİ VERİYİ 0/1'E ÇEVİR (AI İÇİN)
+                    gridData[r * 6 + c] = currentGrid[r, c] > 0 ? 1.0f : 0.0f;
 
             float[] invData = new float[6];
-            for (int i = 0; i < 6; i++)
-                invData[i] = (float)currentInventory[i];
+            for (int i = 0; i < 6; i++) invData[i] = (float)currentInventory[i];
 
             gridTensor = new Tensor<float>(new TensorShape(1, 1, 4, 6), gridData);
             inventoryTensor = new Tensor<float>(new TensorShape(1, 6), invData);
@@ -175,48 +146,24 @@ public class PuzzleController : MonoBehaviour
             worker.SetInput(inputName2, inventoryTensor);
             worker.Schedule();
 
-            // --- KESİN ÇÖZÜM BURASI: EN BÜYÜK ÇIKTIYI BUL ---
             Tensor<float> output = null;
             int maxElements = 0;
-
-            // Tüm çıkışları gez, eleman sayısı en fazla olanı (Action) al.
             foreach (string outName in outputNames)
             {
                 var tempOutput = worker.PeekOutput(outName) as Tensor<float>;
                 if (tempOutput != null)
                 {
-                    // TensorShape'in içindeki 'length' (toplam eleman sayısı) özelliğini okuyoruz.
-                    // Not: Eski sürümlerde tensor.length, yenilerde tensor.shape.length kullanılır.
-                    // En garantisi tensor.shape.length'dir.
                     int currentLen = tempOutput.shape.length;
-
-                    Debug.Log($"Çıktı Bulundu: {outName}, Boyut: {currentLen}");
-
-                    if (currentLen > maxElements)
-                    {
-                        maxElements = currentLen;
-                        output = tempOutput;
-                    }
+                    if (currentLen > maxElements) { maxElements = currentLen; output = tempOutput; }
                 }
             }
 
-            if (output == null)
-            {
-                Debug.LogError("🚨 HATA: Hiçbir çıktı yakalanamadı!");
-                gridTensor.Dispose(); inventoryTensor.Dispose();
-                return null;
-            }
-
+            if (output == null) { gridTensor.Dispose(); inventoryTensor.Dispose(); return null; }
             float[] results = output.DownloadToArray();
-
             gridTensor.Dispose(); inventoryTensor.Dispose();
             return results;
         }
-        catch (System.Exception e)
-        {
-            Debug.LogError("Model Hatası: " + e.Message);
-            return null;
-        }
+        catch { return null; }
     }
 
     bool IsValidPlacement(int shapeId, int startRow, int startCol)
@@ -230,7 +177,7 @@ public class PuzzleController : MonoBehaviour
         foreach (Vector2Int p in coords)
         {
             int r = startRow + p.x; int c = startCol + p.y;
-            if (currentGrid[r, c] == 1) return false;
+            if (currentGrid[r, c] > 0) return false;
         }
         return true;
     }
@@ -241,7 +188,8 @@ public class PuzzleController : MonoBehaviour
         foreach (Vector2Int p in coords)
         {
             int r = startRow + p.x; int c = startCol + p.y;
-            currentGrid[r, c] = 1;
+            // RENK KODUNU KAYDET
+            currentGrid[r, c] = shapeId + 1;
         }
         if (gridManager != null) gridManager.UpdateVisuals(currentGrid);
     }

@@ -9,13 +9,14 @@ public class GridManager : MonoBehaviour
     public Transform cam;
 
     [Header("Görsel Ayar")]
-    [Range(0.1f, 1f)]
-    public float targetSize = 0.9f;
-
+    [Range(0.1f, 2f)] public float targetSize = 0.9f; // Blok boyutu
     public Color emptyColor = Color.white;
-    public Color filledColor = new Color(1f, 0.3f, 0.3f); // Tatlý bir kýrmýzý
 
-    private SpriteRenderer[,] cellRenderers;
+    // YENÝ: Renk Listesi
+    [Header("Þekil Renkleri (Sýrasýyla 0-5)")]
+    public Color[] shapeColors;
+
+    private GameObject[,] cellObjects;
 
     void Start()
     {
@@ -24,22 +25,25 @@ public class GridManager : MonoBehaviour
 
     void GenerateGrid()
     {
-        foreach (Transform child in transform) Destroy(child.gameObject);
-
-        cellRenderers = new SpriteRenderer[width, height];
-
-        for (int x = 0; x < width; x++)
+        if (cellObjects != null)
         {
-            for (int y = 0; y < height; y++)
-            {
-                GameObject newCell = Instantiate(cellPrefab);
+            foreach (GameObject cell in cellObjects) if (cell != null) Destroy(cell);
+        }
+        else
+        {
+            foreach (Transform child in transform) Destroy(child.gameObject);
+        }
 
-                // --- KOORDÝNAT SÝSTEMÝ DÜZELTMESÝ ---
-                // Unity'de Y yukarý artar, Matriste aþaðý artar.
-                // Görsel olarak (x, y) diziyoruz, ama mantýksal eþleþtirmeyi UpdateVisuals'da yapacaðýz.
-                newCell.transform.position = new Vector2(x, y);
-                newCell.transform.parent = this.transform;
-                newCell.name = $"Cell {x},{y}";
+        cellObjects = new GameObject[height, width];
+
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                GameObject newCell = Instantiate(cellPrefab, transform);
+
+                // Pozisyon ve Boyut Ayarý
+                newCell.transform.localPosition = new Vector3(x * targetSize, -y * targetSize, 0);
 
                 SpriteRenderer sr = newCell.GetComponent<SpriteRenderer>();
                 if (sr != null)
@@ -47,36 +51,55 @@ public class GridManager : MonoBehaviour
                     newCell.transform.localScale = Vector3.one;
                     float spriteWidth = sr.bounds.size.x;
                     float spriteHeight = sr.bounds.size.y;
-                    newCell.transform.localScale = new Vector3(targetSize / spriteWidth, targetSize / spriteHeight, 1f);
+                    float newScaleX = targetSize / spriteWidth;
+                    float newScaleY = targetSize / spriteHeight;
+                    // %95 doluluk oranýyla sýðdýr
+                    newCell.transform.localScale = new Vector3(newScaleX * 0.95f, newScaleY * 0.95f, 1f);
 
-                    cellRenderers[x, y] = sr;
                     sr.color = emptyColor;
                 }
+                cellObjects[y, x] = newCell;
             }
         }
 
-        if (cam != null)
-            cam.transform.position = new Vector3((float)width / 2 - 0.5f, (float)height / 2 - 0.5f, -10);
+    //    if (cam != null)
+    //        cam.transform.position = new Vector3(
+    //            -(width * targetSize) / 2f + targetSize / 2f,
+    //            (height * targetSize) / 2f - targetSize / 2f,
+    //            -10);
     }
 
-    // --- KRÝTÝK GÜNCELLEME BURADA ---
     public void UpdateVisuals(int[,] gridData)
     {
-        if (cellRenderers == null) return;
+        if (cellObjects == null) return;
 
-        for (int r = 0; r < height; r++) // r: Satýr (Logic Row 0..3)
+        for (int r = 0; r < height; r++)
         {
-            for (int c = 0; c < width; c++) // c: Sütun (Logic Col 0..5)
+            for (int c = 0; c < width; c++)
             {
-                // MANTIK: Python'daki 0. satýr (En Üst), Unity'deki 3. satýrdýr (En Üst).
-                // Formül: UnityY = (ToplamYükseklik - 1) - MantýksalSatýr
-                int visualY = (height - 1) - r;
+                // Görsel hizalama (Unity Y ekseni ters)
+                int visualY = r;
 
-                int value = gridData[r, c]; // Mantýksal veriyi oku
+                GameObject cellObj = cellObjects[visualY, c];
+                if (cellObj == null) continue;
 
-                if (cellRenderers[c, visualY] != null)
+                SpriteRenderer sr = cellObj.GetComponent<SpriteRenderer>();
+                if (sr == null) continue;
+
+                int cellValue = gridData[r, c];
+
+                if (cellValue == 0)
                 {
-                    cellRenderers[c, visualY].color = (value == 1) ? filledColor : emptyColor;
+                    sr.color = emptyColor;
+                }
+                else
+                {
+                    // Deðer 1 ise index 0 (Shape 0) rengini almalý
+                    int colorIndex = cellValue - 1;
+                    if (shapeColors != null && colorIndex >= 0 && colorIndex < shapeColors.Length)
+                        sr.color = shapeColors[colorIndex];
+                    else
+                        sr.color = Color.gray;
                 }
             }
         }
