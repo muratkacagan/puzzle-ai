@@ -1,6 +1,6 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
-using Unity.Sentis;
+using Unity.Sentis; // Senin sürümün burayı kullanıyor
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -9,6 +9,11 @@ public class PuzzleController : MonoBehaviour
     [Header("Yapay Zeka Beyni (ONNX)")]
     public ModelAsset brainModel;
     private Worker worker;
+
+    [Header("Yönetici Kontrolleri")]
+    public bool isAIPlaying = false;
+
+    // SENİN SÜRÜMÜNE UYGUN TENSÖR TİPİ
     private Tensor<float> gridTensor;
     private Tensor<float> inventoryTensor;
 
@@ -19,7 +24,8 @@ public class PuzzleController : MonoBehaviour
 
     [Header("Bağlantılar")]
     public GridManager gridManager;
-    public Text[] countTexts;
+    // countTexts'i kaldırdık çünkü artık MenuController yönetiyor, ama hata vermesin diye boş bırakabilirsin
+    // public Text[] countTexts; 
 
     [Header("Ayarlar")]
     public float moveDelay = 0.3f;
@@ -27,6 +33,7 @@ public class PuzzleController : MonoBehaviour
     private int[,] currentGrid = new int[4, 6];
     public int[] currentInventory = new int[6];
 
+    // Şekil Tanımları
     private readonly List<Vector2Int[]> shapes = new List<Vector2Int[]>
     {
         new Vector2Int[] { new Vector2Int(0,0), new Vector2Int(1,0), new Vector2Int(2,0) },
@@ -54,32 +61,52 @@ public class PuzzleController : MonoBehaviour
         outputNames.Clear();
         foreach (var outDef in model.outputs) outputNames.Add(outDef.name);
 
+        // SENİN SÜRÜMÜNE UYGUN WORKER OLUŞTURMA
         worker = new Worker(model, BackendType.CPU);
-        UpdateUI();
+
+        // DİKKAT: StartGame() fonksiyonunu sildik. Artık menüden emir bekliyor.
     }
 
-    public void IncreaseItem(int shapeId) { if (shapeId < 6) { currentInventory[shapeId]++; UpdateUI(); } }
-    public void DecreaseItem(int shapeId) { if (shapeId < 6 && currentInventory[shapeId] > 0) { currentInventory[shapeId]--; UpdateUI(); } }
-
-    void UpdateUI()
+    // --- YENİ EKLENEN FONKSİYON (MenuController BURAYI ÇAĞIRACAK) ---
+    public void StartGameLogic()
     {
-        if (countTexts == null) return;
-        for (int i = 0; i < countTexts.Length; i++)
-            if (countTexts[i] != null) countTexts[i].text = currentInventory[i].ToString();
-    }
-
-    public void StartGame()
-    {
-        bool isEmpty = true;
-        foreach (int c in currentInventory) if (c > 0) isEmpty = false;
-        if (isEmpty) { Debug.LogError("⚠️ Envanter boş!"); return; }
-
+        if (gridManager != null) gridManager.InitializeGrid();
+        // 1. Grid'i Sıfırla
         currentGrid = new int[4, 6];
-        if (gridManager != null) gridManager.UpdateVisuals(currentGrid);
-        StopAllCoroutines();
-        StartCoroutine(GameLoop());
-    }
+        if (gridManager != null) gridManager.InitializeGrid();
+        currentGrid = new int[4, 6];
+        gridManager.UpdateVisuals(currentGrid);
+        System.Array.Copy(GameSettings.SelectedInventory, currentInventory, 6);
 
+        isAIPlaying = false; // Oyun başında AI durur, komut bekler
+        StopAllCoroutines();
+        Debug.Log("Oyun hazır. İster Step yap, ister Start ile AI'ı sal.");
+    }
+    public void StartAIAutoPlay()
+    {
+        if (!isAIPlaying)
+        {
+            isAIPlaying = true;
+            StartCoroutine(AIGameLoopManual());
+        }
+    }
+    public void StopAIAutoPlay()
+    {
+        isAIPlaying = false;
+        StopAllCoroutines();
+    }
+    IEnumerator AIGameLoopManual()
+    {
+        while (isAIPlaying)
+        {
+            // Daha önce yazdığımız Tek Hamle fonksiyonunu çağırıyoruz
+            MakeSingleAIMove();
+
+            // Eğer hamle bittiyse veya kilitlendiyse dur (MakeSingleAIMove içinde kontrol var)
+            yield return new WaitForSeconds(moveDelay);
+        }
+    }
+    // --- OYUN DÖNGÜSÜ (Eski Kodunun Aynısı) ---
     IEnumerator GameLoop()
     {
         bool gameOver = false;
@@ -111,6 +138,7 @@ public class PuzzleController : MonoBehaviour
                 }
             }
 
+            // Eğer AI bulamazsa rastgele yap (Fallback)
             if (bestAction == -1) bestAction = validMoves[UnityEngine.Random.Range(0, validMoves.Count)];
 
             int shapeId = bestAction / 24;
@@ -118,14 +146,20 @@ public class PuzzleController : MonoBehaviour
             int row = remaining / 6;
             int col = remaining % 6;
 
-            Debug.Log($"Oynanan: Şekil {shapeId} -> ({row}, {col})");
             PlaceShape(shapeId, row, col);
 
-            if (currentInventory[shapeId] > 0) { currentInventory[shapeId]--; UpdateUI(); }
+            if (currentInventory[shapeId] > 0)
+            {
+                currentInventory[shapeId]--;
+                // Envanter görselini güncellemek istersen buraya kod eklenecek
+                // MenuController'a erişim olmadığı için şimdilik boş geçiyoruz.
+            }
+
             yield return new WaitForSeconds(moveDelay);
         }
     }
 
+    // --- SENİN TENSÖR MANTIĞININ AYNISI ---
     float[] RunAIModel()
     {
         try
@@ -133,12 +167,12 @@ public class PuzzleController : MonoBehaviour
             float[] gridData = new float[24];
             for (int r = 0; r < 4; r++)
                 for (int c = 0; c < 6; c++)
-                    // RENKLİ VERİYİ 0/1'E ÇEVİR (AI İÇİN)
                     gridData[r * 6 + c] = currentGrid[r, c] > 0 ? 1.0f : 0.0f;
 
             float[] invData = new float[6];
             for (int i = 0; i < 6; i++) invData[i] = (float)currentInventory[i];
 
+            // ESKİ SÜRÜM TENSÖR OLUŞTURMA
             gridTensor = new Tensor<float>(new TensorShape(1, 1, 4, 6), gridData);
             inventoryTensor = new Tensor<float>(new TensorShape(1, 6), invData);
 
@@ -166,6 +200,7 @@ public class PuzzleController : MonoBehaviour
         catch { return null; }
     }
 
+    // --- YARDIMCI FONKSİYONLAR (Aynen Korundu) ---
     bool IsValidPlacement(int shapeId, int startRow, int startCol)
     {
         if (currentInventory[shapeId] <= 0) return false;
@@ -188,11 +223,95 @@ public class PuzzleController : MonoBehaviour
         foreach (Vector2Int p in coords)
         {
             int r = startRow + p.x; int c = startCol + p.y;
-            // RENK KODUNU KAYDET
             currentGrid[r, c] = shapeId + 1;
         }
         if (gridManager != null) gridManager.UpdateVisuals(currentGrid);
     }
 
     void OnDisable() { if (worker != null) worker.Dispose(); }
+    public void StopGame()
+    {
+        StopAllCoroutines();
+        // Grid'i temizle
+        currentGrid = new int[4, 6];
+        if (gridManager != null) gridManager.UpdateVisuals(currentGrid);
+    }
+
+    public void MakeSingleAIMove()
+    {
+        // 1. Önce geçerli hamle var mı diye bakalım
+        List<int> validMoves = new List<int>();
+        for (int i = 0; i < 144; i++)
+        {
+            int sId = i / 24; int rem = i % 24; int r = rem / 6; int c = rem % 6;
+            if (IsValidPlacement(sId, r, c)) validMoves.Add(i);
+        }
+
+        if (validMoves.Count == 0)
+        {
+            Debug.Log("⚠️ Yapılacak hamle kalmadı veya oyun kilitlendi!");
+            return;
+        }
+
+        // 2. Modeli Çalıştır
+        float[] aiScores = RunAIModel();
+        int bestAction = -1;
+
+        if (aiScores != null)
+        {
+            float maxScore = float.NegativeInfinity;
+            foreach (int moveIndex in validMoves)
+            {
+                float score = aiScores[moveIndex];
+                if (!float.IsNaN(score) && score > maxScore)
+                {
+                    maxScore = score;
+                    bestAction = moveIndex;
+                }
+            }
+        }
+
+        // AI bulamazsa rastgele (Fallback)
+        if (bestAction == -1) bestAction = validMoves[UnityEngine.Random.Range(0, validMoves.Count)];
+
+        // 3. Hamleyi Uygula
+        int shapeId = bestAction / 24;
+        int remaining = bestAction % 24;
+        int row = remaining / 6;
+        int col = remaining % 6;
+
+        Debug.Log($"🤖 AI Hamle Yaptı: Şekil {shapeId} -> ({row}, {col})");
+        PlaceShape(shapeId, row, col);
+
+        // Envanterden düş
+        if (currentInventory[shapeId] > 0)
+        {
+            currentInventory[shapeId]--;
+
+            // UI Güncellemesini Tetikle (PlayerInteraction üzerinden)
+            PlayerInteraction pi = FindObjectOfType<PlayerInteraction>();
+            if (pi != null) pi.UpdateHandUI(); // Bu fonksiyonu geçen adımda public yapmıştık
+        }
+    }
+
+    // --- ÇOK ÖNEMLİ EKLEME: SENİN HAMLENİ AI'IN DUYMASI İÇİN ---
+    // PlayerInteraction bu fonksiyonu çağıracak
+    public void RegisterPlayerMove(int shapeId, int r, int c)
+    {
+        // Oyuncu bir parça koyduğunda AI'ın hafızasındaki (currentGrid) diziyi güncelliyoruz
+        // Yoksa AI tahtayı boş sanır, senin koyduğun yerin üstüne koymaya çalışır.
+
+        Vector2Int[] coords = shapes[shapeId];
+        foreach (Vector2Int p in coords)
+        {
+            int targetR = r + p.x;
+            int targetC = c + p.y;
+            if (targetR >= 0 && targetR < 4 && targetC >= 0 && targetC < 6)
+                currentGrid[targetR, targetC] = shapeId + 1;
+        }
+
+        // Görseli güncellemeye gerek yok, zaten PlayerInteraction yaptı.
+        // Ama envanteri düşmemiz lazım.
+        // (PlayerInteraction zaten envanteri düşüyordu, o yüzden buraya yazmıyorum)
+    }
 }

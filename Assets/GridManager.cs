@@ -2,104 +2,71 @@ using UnityEngine;
 
 public class GridManager : MonoBehaviour
 {
-    [Header("Ayarlar")]
-    public int width = 6;
-    public int height = 4;
-    public GameObject cellPrefab;
-    public Transform cam;
+    public GameObject cellPrefab; // Senin beyaz kare prefabýn
+    public float targetSize = 1f; // Hücre boyutu
+    public Color[] shapeColors; // Þekil renkleri dizisi (Inspector'dan atanmýþ olmalý)
 
-    [Header("Görsel Ayar")]
-    [Range(0.1f, 2f)] public float targetSize = 0.9f; // Blok boyutu
-    public Color emptyColor = Color.white;
-
-    // YENÝ: Renk Listesi
-    [Header("Þekil Renkleri (Sýrasýyla 0-5)")]
-    public Color[] shapeColors;
-
-    private GameObject[,] cellObjects;
-
-    void Start()
+    // Eskiden Start idi, þimdi InitializeGrid yaptýk
+    public void InitializeGrid()
     {
-        GenerateGrid();
-    }
+        // Önce sahnede kalan eski gridleri temizle
+        ClearGridVisuals();
 
-    void GenerateGrid()
-    {
-        if (cellObjects != null)
+        // 4 satýr, 6 sütunluk gridi oluþtur (Senin asýl kodun burasý)
+        for (int r = 0; r < 4; r++)
         {
-            foreach (GameObject cell in cellObjects) if (cell != null) Destroy(cell);
-        }
-        else
-        {
-            foreach (Transform child in transform) Destroy(child.gameObject);
-        }
-
-        cellObjects = new GameObject[height, width];
-
-        for (int y = 0; y < height; y++)
-        {
-            for (int x = 0; x < width; x++)
+            for (int c = 0; c < 6; c++)
             {
-                GameObject newCell = Instantiate(cellPrefab, transform);
+                // Hücreyi oluþtur ve GridManager'ýn çocuðu yap
+                GameObject cell = Instantiate(cellPrefab, transform);
 
-                // Pozisyon ve Boyut Ayarý
-                newCell.transform.localPosition = new Vector3(x * targetSize, -y * targetSize, 0);
+                // Pozisyonu ayarla (Hücreleri yan yana ve alt alta dizer)
+                cell.transform.localPosition = new Vector3(c * targetSize, -r * targetSize, 0);
 
-                SpriteRenderer sr = newCell.GetComponent<SpriteRenderer>();
+                // Ýsmini düzenle (Hierarchy'de rahat bulmak için)
+                cell.name = $"Cell_{r}_{c}";
+
+                // Hücrenin baþlangýç rengini beyaz yap (Boþ hücre)
+                SpriteRenderer sr = cell.GetComponent<SpriteRenderer>();
                 if (sr != null)
                 {
-                    newCell.transform.localScale = Vector3.one;
-                    float spriteWidth = sr.bounds.size.x;
-                    float spriteHeight = sr.bounds.size.y;
-                    float newScaleX = targetSize / spriteWidth;
-                    float newScaleY = targetSize / spriteHeight;
-                    // %95 doluluk oranýyla sýðdýr
-                    newCell.transform.localScale = new Vector3(newScaleX * 0.95f, newScaleY * 0.95f, 1f);
-
-                    sr.color = emptyColor;
+                    sr.color = Color.white;
+                    // Scale ayarýný yap (Prefabýn boyutuna göre targetSize'a uydur)
+                    float spriteSize = sr.sprite.bounds.size.x;
+                    float newScale = targetSize / spriteSize;
+                    cell.transform.localScale = new Vector3(newScale * 0.95f, newScale * 0.95f, 1f);
                 }
-                cellObjects[y, x] = newCell;
             }
         }
-
-    //    if (cam != null)
-    //        cam.transform.position = new Vector3(
-    //            -(width * targetSize) / 2f + targetSize / 2f,
-    //            (height * targetSize) / 2f - targetSize / 2f,
-    //            -10);
     }
 
-    public void UpdateVisuals(int[,] gridData)
+    public void ClearGridVisuals()
     {
-        if (cellObjects == null) return;
-
-        for (int r = 0; r < height; r++)
+        // GridManager'ýn altýndaki tüm hücre objelerini kökten siler
+        foreach (Transform child in transform)
         {
-            for (int c = 0; c < width; c++)
+            Destroy(child.gameObject);
+        }
+    }
+
+    // PuzzleController bu fonksiyonu çaðýrarak renkleri günceller
+    public void UpdateVisuals(int[,] grid)
+    {
+        // Sahnede oluþturduðumuz hücreleri tek tek kontrol et
+        for (int r = 0; r < 4; r++)
+        {
+            for (int c = 0; c < 6; c++)
             {
-                // Görsel hizalama (Unity Y ekseni ters)
-                int visualY = r;
-
-                GameObject cellObj = cellObjects[visualY, c];
-                if (cellObj == null) continue;
-
-                SpriteRenderer sr = cellObj.GetComponent<SpriteRenderer>();
-                if (sr == null) continue;
-
-                int cellValue = gridData[r, c];
-
-                if (cellValue == 0)
+                Transform cellTransform = transform.Find($"Cell_{r}_{c}");
+                if (cellTransform != null)
                 {
-                    sr.color = emptyColor;
-                }
-                else
-                {
-                    // Deðer 1 ise index 0 (Shape 0) rengini almalý
-                    int colorIndex = cellValue - 1;
-                    if (shapeColors != null && colorIndex >= 0 && colorIndex < shapeColors.Length)
-                        sr.color = shapeColors[colorIndex];
+                    SpriteRenderer sr = cellTransform.GetComponent<SpriteRenderer>();
+                    int shapeIdPlusOne = grid[r, c];
+
+                    if (shapeIdPlusOne == 0)
+                        sr.color = Color.white; // Boþsa beyaz
                     else
-                        sr.color = Color.gray;
+                        sr.color = shapeColors[shapeIdPlusOne - 1]; // Doluysa þekil rengi
                 }
             }
         }
