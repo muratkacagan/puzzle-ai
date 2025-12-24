@@ -33,6 +33,9 @@ public class PuzzleController : MonoBehaviour
     private int[,] currentGrid = new int[4, 6];
     public int[] currentInventory = new int[6];
 
+    private int currentScore = 0;
+    private MenuController menuController; // Referans lazım
+
     // Şekil Tanımları
     private readonly List<Vector2Int[]> shapes = new List<Vector2Int[]>
     {
@@ -49,6 +52,8 @@ public class PuzzleController : MonoBehaviour
     void Start()
     {
         if (brainModel == null) { Debug.LogError("🚨 Brain Model BOŞ!"); return; }
+
+        menuController = FindObjectOfType<MenuController>();
 
         Model model = ModelLoader.Load(brainModel);
 
@@ -81,6 +86,8 @@ public class PuzzleController : MonoBehaviour
         isAIPlaying = false; // Oyun başında AI durur, komut bekler
         StopAllCoroutines();
         Debug.Log("Oyun hazır. İster Step yap, ister Start ile AI'ı sal.");
+        currentScore = 0;
+        if (menuController != null) menuController.UpdateScoreUI(currentScore);
     }
     public void StartAIAutoPlay()
     {
@@ -226,6 +233,22 @@ public class PuzzleController : MonoBehaviour
             currentGrid[r, c] = shapeId + 1;
         }
         if (gridManager != null) gridManager.UpdateVisuals(currentGrid);
+
+        foreach (Vector2Int p in shapes[shapeId])
+        {
+            currentGrid[startRow + p.x, startCol + p.y] = shapeId + 1;
+
+            // HER BİR KARE İÇİN 1 PUAN
+            currentScore += 1;
+        }
+
+        gridManager.UpdateVisuals(currentGrid);
+
+        // UI GÜNCELLE
+        if (menuController != null) menuController.UpdateScoreUI(currentScore);
+
+        // OYUN BİTTİ Mİ KONTROL ET
+        CheckGameEnd();
     }
 
     void OnDisable() { if (worker != null) worker.Dispose(); }
@@ -298,20 +321,47 @@ public class PuzzleController : MonoBehaviour
     // PlayerInteraction bu fonksiyonu çağıracak
     public void RegisterPlayerMove(int shapeId, int r, int c)
     {
-        // Oyuncu bir parça koyduğunda AI'ın hafızasındaki (currentGrid) diziyi güncelliyoruz
-        // Yoksa AI tahtayı boş sanır, senin koyduğun yerin üstüne koymaya çalışır.
-
         Vector2Int[] coords = shapes[shapeId];
         foreach (Vector2Int p in coords)
         {
             int targetR = r + p.x;
             int targetC = c + p.y;
             if (targetR >= 0 && targetR < 4 && targetC >= 0 && targetC < 6)
+            {
                 currentGrid[targetR, targetC] = shapeId + 1;
+                // HER KARE İÇİN 1 PUAN
+                currentScore += 1;
+            }
+        }
+        // UI GÜNCELLE
+        if (menuController != null) menuController.UpdateScoreUI(currentScore);
+
+        // OYUN BİTTİ Mİ KONTROL ET
+        CheckGameEnd();
+    }
+
+    void CheckGameEnd()
+    {
+        int filledCount = 0;
+        foreach (int cell in currentGrid)
+        {
+            if (cell > 0) filledCount++;
         }
 
-        // Görseli güncellemeye gerek yok, zaten PlayerInteraction yaptı.
-        // Ama envanteri düşmemiz lazım.
-        // (PlayerInteraction zaten envanteri düşüyordu, o yüzden buraya yazmıyorum)
+        // Eğer 24 karenin hepsi doluysa
+        if (filledCount == 24)
+        {
+            Debug.Log("Oyun Bitti! Tam Puan!");
+            currentScore += 100; // BONUS
+
+            if (menuController != null)
+            {
+                menuController.UpdateScoreUI(currentScore); // Son puanı yaz
+                menuController.ShowGameOverPanel(currentScore); // Paneli aç
+            }
+
+            StopAllCoroutines(); // AI oynuyorsa durdur
+            isAIPlaying = false;
+        }
     }
 }

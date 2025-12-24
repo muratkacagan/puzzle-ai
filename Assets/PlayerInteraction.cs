@@ -39,6 +39,9 @@ public class PlayerInteraction : MonoBehaviour
         if (GameSettings.CurrentMode == GameMode.AI_Manual || GameSettings.CurrentMode == GameMode.AI_Auto)
             return;
 
+        if (GameSettings.CurrentMode == GameMode.AI_Manual || GameSettings.CurrentMode == GameMode.AI_Auto)
+            return;
+
         if (isDragging && currentGhost != null)
         {
             HandleDragging();

@@ -7,11 +7,19 @@ public class MenuController : MonoBehaviour
 {
     [Header("Referanslar")]
     public PuzzleSolver puzzleSolver; // GameManager üzerindeki scripti baðlayacaðýz
+    public PuzzleController puzzleController;
 
     [Header("Paneller")]
     public GameObject MainMenuPanel;
     public GameObject SetupPanel;
     public GameObject GamePanel;
+
+    [Header("Oyun Ýçi UI Referanslarý")]
+    public GameObject btnStartAI; // O yeni eklediðin Start butonu objesi
+    public Text txtStepButton;    // Step/Ýpucu butonunun içindeki Text
+    public Text txtScore;         // Puaný yazacaðýmýz Text (Bir sonraki görev için lazým olacak)
+    public GameObject panelGameOver; // Oyun Bitti Paneli
+    public Text txtFinalScore;       // Oyun sonu puan yazýsý
 
     [Header("Setup Ekraný Referanslarý")]
     // 6 tane slotun içindeki sayý yazýlarý (Sýrasýyla 0-5)
@@ -149,8 +157,44 @@ public class MenuController : MonoBehaviour
 
         ShowGamePanel();
 
+        // --- EKLENEN KISIM: MODA GÖRE UI AYARI ---
+        if (GameSettings.CurrentMode == GameMode.Player_Manual || GameSettings.CurrentMode == GameMode.Player_Auto)
+        {
+            // OYUNCU MODU
+            btnStartAI.SetActive(false); // Start butonunu gizle
+            txtStepButton.text = "ÝPUCU"; // Yazýyý Ýpucu yap
+        }
+        else
+        {
+            // AI MODU
+            btnStartAI.SetActive(true); // Start butonunu aç
+            txtStepButton.text = "ADIM AT"; // Yazýyý Adým At yap
+        }
+
+        // Puaný sýfýrla (Birazdan yapacaðýmýz sistem için hazýrlýk)
+        UpdateScoreUI(0);
+        if (panelGameOver != null) panelGameOver.SetActive(false);
+
+        puzzleController.StartGameLogic();
+
         // PuzzleController'ý bul ve baþlat
         GameObject.FindObjectOfType<PuzzleController>().StartGameLogic();
+    }
+
+    public void UpdateScoreUI(int score)
+    {
+        if (txtScore != null) txtScore.text = "PUAN: " + score.ToString();
+    }
+
+    // Oyun Bitti Ekranýný Açan Fonksiyon
+    public void ShowGameOverPanel(int finalScore)
+    {
+        if (panelGameOver != null)
+        {
+            panelGameOver.SetActive(true);
+            if (txtFinalScore != null)
+                txtFinalScore.text =  finalScore.ToString();
+        }
     }
 
     // --- OYUN ÝÇÝ HEADER BUTONLARI ---
@@ -165,6 +209,7 @@ public class MenuController : MonoBehaviour
             if (pc.gridManager != null) pc.gridManager.ClearGridVisuals();
         }
 
+        panelGameOver.SetActive(false);
         ShowMainMenu();
     }
 
@@ -179,7 +224,11 @@ public class MenuController : MonoBehaviour
 
         // Mevcut restart mantýðýn...
         if (GameSettings.CurrentMode == GameMode.Player_Manual || GameSettings.CurrentMode == GameMode.AI_Manual)
+        {
+            panelGameOver.SetActive(false);
             ShowSetupPanel();
+
+        }    
         else
             StartGameDirectly();
     }
